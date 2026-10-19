@@ -54,6 +54,40 @@ public static class AgentSelector
 
         return new AgentSelection(chosen, reason);
     }
+
+    /// <summary>
+    /// BR-7: who should own a ticket being escalated. The current owner keeps it while still
+    /// eligible; otherwise it goes to whoever <see cref="Select"/> picks, or to nobody.
+    /// </summary>
+    /// <remarks>
+    /// The current owner's count already includes this ticket. It is left out before checking
+    /// their capacity, so an agent is not taken off a ticket merely for holding it.
+    /// </remarks>
+    public static AgentSelection KeepOrReassign(
+        int? currentAgentId, IEnumerable<AgentWorkload> agents, Category category)
+    {
+        ArgumentNullException.ThrowIfNull(agents);
+        ArgumentNullException.ThrowIfNull(category);
+
+        var adjusted = agents
+            .Select(agent => agent.AgentId == currentAgentId && agent.OpenTicketCount > 0
+                ? agent with { OpenTicketCount = agent.OpenTicketCount - 1 }
+                : agent)
+            .ToList();
+
+        var current = adjusted.FirstOrDefault(agent => agent.AgentId == currentAgentId);
+
+        if (current is not null && IsEligible(current, category))
+        {
+            return new AgentSelection(current, $"Kept with {current.FullName}, who is still eligible.");
+        }
+
+        var selection = Select(adjusted.Where(agent => agent.AgentId != currentAgentId), category);
+
+        return current is null
+            ? selection
+            : selection with { Reason = $"{current.FullName} is no longer eligible. {selection.Reason}" };
+    }
 }
 
 /// <summary>The agent chosen for a ticket, or null when nobody is eligible, and why.</summary>

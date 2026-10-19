@@ -192,3 +192,78 @@ calls `TicketTriage`, raises the ticket and saves.
   JSON when null, so `GET /api/tickets/{id}` is unchanged and the existing client keeps working.
 - *No schema change:* due date and assigned agent already exist on `Tickets`; triage reasons are
   returned, not stored.
+
+---
+
+## Task 2B (backend): escalation, history and SLA status
+
+### Escalation (BR-7)
+
+`POST /api/tickets/{id}/escalate` with `{ "reason": "...", "escalatedBy": "..." }`:
+
+| Outcome | Status |
+| --- | --- |
+| Escalated | **200** `{ ticket, escalation }`: the updated ticket and the history row just recorded |
+| Reason missing, blank, or not 5-500 characters once trimmed; `escalatedBy` missing or over 100 | **400** ProblemDetails |
+| Unknown ticket | **404** |
+| Ticket is Critical / Resolved / Closed | **409**, naming which (`... is already Critical ...`, `... is Resolved ...`) |
+
+`GET /api/tickets/{id}/escalations` returns the history newest first (ties broken by id):
+before/after priority, agent and due date, reason, who and when. **404** for an unknown ticket.
+
+**Where the rules live.** `Ticket.EnsureCanBeEscalated` and `Ticket.Escalate` (the aggregate
+raises the priority exactly one level, restarts the SLA window from the escalation time and
+creates the immutable `TicketEscalation` record itself, so the record cannot disagree with the
+change). `TicketEscalator` (domain) reuses Task 2A's units: `SlaPolicy.WindowFor` for the new
+due date (BR-2/3, Premium halving and floor included) and `AgentSelector` for the owner.
+
+**Decisions.**
+- *Keeping the owner:* the current agent keeps the ticket while still eligible (BR-4/5). Their
+  open count already includes this ticket, so it is left out when checking their capacity: an
+  agent at 6/6 who holds the ticket keeps it. Otherwise the ticket is reassigned by the normal
+  selection, or left unassigned when nobody is eligible - the escalation still succeeds.
+- *Unassigned tickets* are assigned by the normal selection when escalated.
+- *Atomicity:* the ticket's change and its history row are saved by one `SaveChanges`, which EF
+  Core runs in a single transaction. Tested by forcing a foreign-key failure: neither is saved.
+- *Actor (until Task 3):* the handler takes `escalatedBy` as a separate argument from the
+  request; the controller passes the body value today and will pass the signed-in user (AU-8).
+
+### SLA status (BR-8)
+
+Derived on every read, never stored: no due date → `NotApplicable`; resolved on/before due →
+`Met`; resolved late, or unresolved and past due → `Breached`; unresolved with at most
+`AtRiskThresholdPercent` of its window left (due moment included) → `AtRisk`; else `WithinSla`.
+"Now" comes from `IClock`, taken to the millisecond (the stored precision).
+
+**Why a new `Tickets.SlaWindowSeconds` column.** "25% of the window" needs the window's
+length, and after an escalation the window starts at the escalation, not at `CreatedAtUtc`.
+Storing the length next to the due date (both set together, enforced by `CK_Tickets_SlaWindow`)
+keeps the status derived while letting SQL compute it. *Rejected:* storing the at-risk moment
+(a threshold change would not apply to existing tickets); joining the latest escalation per
+ticket (a correlated subquery on every list read). The migration backfills existing tickets
+as `DueAtUtc - CreatedAtUtc`, exact because none had been escalated.
+
+### SLA filter (`GET /api/tickets?slaStatus=...`)
+
+One more `if` in `TicketQueries.ApplyFilters` (FL-6). `WhereSlaStatus` expresses BR-8 as plain
+comparisons plus one `DATEADD` on the "now" parameter (`due <= now + lead`), so it runs in SQL
+before the count and the page on SQL Server and SQLite alike, with nothing loaded into memory.
+The at-risk lead is `(int)(windowSeconds * fraction)` in both C# (`SlaEvaluator.AtRiskLeadSeconds`)
+and SQL (`CAST(... AS int)`), so both truncate identically. Tests assert, for every status, that
+the filter returns exactly the tickets the evaluator labels with it; the same was checked live
+against SQL Server and against an independent T-SQL evaluation.
+
+### Database
+
+Migration `AddTicketEscalationsAndSlaWindow`:
+- `Tickets.SlaWindowSeconds int NULL` + backfill + `CK_Tickets_SlaWindow`.
+- `TicketEscalations` (Id, TicketId FK, From/To Priority, From/To AgentId FKs, From/To DueAtUtc,
+  Reason nvarchar(500), EscalatedBy nvarchar(100), EscalatedAtUtc), every FK `Restrict`
+  (history is an audit trail - deleting a ticket or agent must not silently remove it);
+  `CK_TicketEscalations_OneLevel` (`ToPriority = FromPriority + 1`).
+- **Index** `IX_TicketEscalations_TicketId_EscalatedAtUtc (TicketId, EscalatedAtUtc DESC)`: the
+  only read is one ticket's history newest first, which this serves as a seek with no sort; it
+  also covers the TicketId foreign key, so no separate single-column index was added.
+
+Not done: `db/schema.sql` and `db/seed.sql` (reference scripts) were not updated; the EF
+migrations are the source of truth.

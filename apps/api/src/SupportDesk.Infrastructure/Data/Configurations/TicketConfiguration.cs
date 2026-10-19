@@ -19,6 +19,11 @@ public sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
         {
             t.HasCheckConstraint("CK_Tickets_Priority", "[Priority] BETWEEN 1 AND 4");
             t.HasCheckConstraint("CK_Tickets_Status", "[Status] BETWEEN 1 AND 5");
+
+            // A due date always comes with the window it was set from, and only then.
+            t.HasCheckConstraint(
+                "CK_Tickets_SlaWindow",
+                "([DueAtUtc] IS NULL AND [SlaWindowSeconds] IS NULL) OR ([DueAtUtc] IS NOT NULL AND [SlaWindowSeconds] > 0)");
         });
 
         builder.HasKey(t => t.Id);

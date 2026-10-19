@@ -47,7 +47,7 @@ public sealed class RaiseTicketCommandHandler(
             request.CategoryId,
             decision.Priority,
             now,
-            decision.DueAtUtc,
+            decision.SlaWindow,
             decision.AssignedAgentId);
 
         await tickets.AddAsync(ticket, ct);

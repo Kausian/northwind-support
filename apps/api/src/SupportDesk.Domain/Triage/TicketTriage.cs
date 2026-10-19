@@ -23,6 +23,7 @@ public sealed class TicketTriage(SlaPolicy slaPolicy)
 
         return new TriageDecision(
             priority.Priority,
+            window.Length,
             window.DueFrom(nowUtc),
             assignment.Agent?.AgentId,
             priority.Reason,
@@ -34,6 +35,7 @@ public sealed class TicketTriage(SlaPolicy slaPolicy)
 /// <summary>What triage decided for a new ticket, with a human-readable reason for each part.</summary>
 public sealed record TriageDecision(
     TicketPriority Priority,
+    TimeSpan SlaWindow,
     DateTime DueAtUtc,
     int? AssignedAgentId,
     string PriorityReason,

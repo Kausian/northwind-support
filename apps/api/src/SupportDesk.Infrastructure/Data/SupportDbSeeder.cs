@@ -14,8 +14,9 @@ namespace SupportDesk.Infrastructure.Data;
 /// produce the same database.
 /// </summary>
 /// <remarks>
-/// Every aggregate is built through its own behaviour. The two historical values no behaviour
-/// produces - a ticket's last update and its due date - are set through EF Core directly.
+/// Every aggregate is built through its own behaviour. The historical values no behaviour
+/// produces - a ticket's last update, its due date and that due date's window - are set through
+/// EF Core directly.
 /// </remarks>
 public sealed class SupportDbSeeder(SupportDbContext db, IClock clock, ILogger<SupportDbSeeder> logger)
 {
@@ -195,6 +196,7 @@ public sealed class SupportDbSeeder(SupportDbContext db, IClock clock, ILogger<S
             entry.Property(t => t.UpdatedAtUtc).CurrentValue =
                 createdAtUtc.AddMinutes(row.ResolvedAfterMinutes ?? row.CreatedMinutesAgo / 2);
             entry.Property(t => t.DueAtUtc).CurrentValue = createdAtUtc.AddMinutes(row.SlaWindowMinutes);
+            entry.Property(t => t.SlaWindowSeconds).CurrentValue = row.SlaWindowMinutes * 60;
         }
     }
 

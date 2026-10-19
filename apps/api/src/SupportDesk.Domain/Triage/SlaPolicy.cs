@@ -26,6 +26,9 @@ public sealed class SlaPolicy
         _settings = settings;
     }
 
+    /// <summary>BR-8: the share of its window (0-1) at or below which an open ticket is at risk.</summary>
+    public double AtRiskFraction => _settings.AtRiskThresholdPercent / 100;
+
     /// <summary>
     /// The base window for the priority; for a Premium customer, that multiplied by the premium
     /// multiplier, but never below the minimum.
@@ -37,7 +40,7 @@ public sealed class SlaPolicy
 
         if (tier != CustomerTier.Premium)
         {
-            return new SlaWindow(TimeSpan.FromHours(baseHours), $"{reason}.");
+            return new SlaWindow(WholeSeconds(baseHours), $"{reason}.");
         }
 
         var premiumHours = baseHours * _settings.PremiumCustomerMultiplier;
@@ -49,8 +52,11 @@ public sealed class SlaPolicy
             reason += $", raised to the {Hours(premiumHours)} minimum";
         }
 
-        return new SlaWindow(TimeSpan.FromHours(premiumHours), $"{reason}.");
+        return new SlaWindow(WholeSeconds(premiumHours), $"{reason}.");
     }
+
+    /// <summary>Windows are kept to whole seconds, the precision the ticket stores them in.</summary>
+    private static TimeSpan WholeSeconds(double hours) => TimeSpan.FromSeconds(Math.Round(hours * 3600));
 
     private static string Hours(double hours) => $"{hours.ToString("0.##", CultureInfo.InvariantCulture)} h";
 }

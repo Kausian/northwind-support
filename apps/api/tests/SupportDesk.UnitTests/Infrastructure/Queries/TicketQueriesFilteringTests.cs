@@ -199,7 +199,7 @@ public sealed class TicketQueriesFilteringTests : IDisposable
     private async Task<PagedResult<TicketListItemDto>> Search(TicketQuery query)
     {
         await using var db = _database.CreateContext();
-        var handler = new SearchTicketsQueryHandler(new TicketQueries(db, new FixedClock()));
+        var handler = new SearchTicketsQueryHandler(new TicketQueries(db, new FixedClock(), TestSla.Policy()));
 
         return await handler.HandleAsync(query, CancellationToken.None);
     }

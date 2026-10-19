@@ -15,4 +15,7 @@ public interface ITicketRepository
     Task<string> NextReferenceAsync(CancellationToken ct);
 
     Task AddAsync(Ticket ticket, CancellationToken ct);
+
+    /// <summary>Stages an escalation record; it is saved with the ticket's change, in one transaction.</summary>
+    Task AddEscalationAsync(TicketEscalation escalation, CancellationToken ct);
 }

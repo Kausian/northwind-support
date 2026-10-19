@@ -43,16 +43,24 @@ public sealed class Ticket : AggregateRoot
     /// <summary>When the team has committed to responding by. Null when no SLA applies.</summary>
     public DateTime? DueAtUtc { get; private set; }
 
+    /// <summary>
+    /// How long the window that produced <see cref="DueAtUtc"/> was, in whole seconds; null
+    /// exactly when there is no due date. BR-8 needs it to tell when a ticket becomes at risk,
+    /// because after an escalation the window no longer starts at <see cref="CreatedAtUtc"/>.
+    /// </summary>
+    public int? SlaWindowSeconds { get; private set; }
+
     public DateTime? ResolvedAtUtc { get; private set; }
 
     /// <summary>True while the ticket still needs work from an agent.</summary>
     public bool IsOpen => Status is not (TicketStatus.Resolved or TicketStatus.Closed);
 
     /// <summary>
-    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, due and
-    /// owned as triage decided; without a due date or owner it has neither.
+    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, due one
+    /// <paramref name="slaWindow"/> from now and owned as triage decided; without a window or an
+    /// owner it has no due date or no owner.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">The due date is not after <paramref name="nowUtc"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The window is not a positive whole number of seconds.</exception>
     public static Ticket Raise(
         string reference,
         string title,
@@ -61,19 +69,14 @@ public sealed class Ticket : AggregateRoot
         int categoryId,
         TicketPriority priority,
         DateTime nowUtc,
-        DateTime? dueAtUtc = null,
+        TimeSpan? slaWindow = null,
         int? assignedAgentId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
 
-        if (dueAtUtc is { } due)
-        {
-            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(due, nowUtc, nameof(dueAtUtc));
-        }
-
-        return new Ticket
+        var ticket = new Ticket
         {
             Reference = reference,
             Title = title.Trim(),
@@ -84,9 +87,74 @@ public sealed class Ticket : AggregateRoot
             Status = TicketStatus.New,
             AssignedAgentId = assignedAgentId,
             CreatedAtUtc = nowUtc,
-            UpdatedAtUtc = nowUtc,
-            DueAtUtc = dueAtUtc
+            UpdatedAtUtc = nowUtc
         };
+
+        if (slaWindow is { } window)
+        {
+            ticket.StartSlaWindow(window, nowUtc);
+        }
+
+        return ticket;
+    }
+
+    /// <summary>
+    /// BR-7: refuses an escalation the rules do not allow. Callers check this before working out
+    /// the new due date and owner, which depend on the new priority.
+    /// </summary>
+    /// <exception cref="BusinessRuleViolationException">The ticket is Resolved, Closed or already Critical.</exception>
+    public void EnsureCanBeEscalated()
+    {
+        if (!IsOpen)
+        {
+            throw new BusinessRuleViolationException(
+                $"Ticket {Reference} is {Status} and cannot be escalated.");
+        }
+
+        if (Priority == TicketPriority.Critical)
+        {
+            throw new BusinessRuleViolationException(
+                $"Ticket {Reference} is already Critical and cannot be escalated further.");
+        }
+    }
+
+    /// <summary>
+    /// BR-7: raises the priority one level, restarts the SLA window from <paramref name="nowUtc"/>
+    /// and hands the ticket to <paramref name="agentId"/> (which may be the current owner, or
+    /// nobody). Returns the history record of the change, to be saved with it.
+    /// </summary>
+    /// <param name="slaWindow">The window for the new priority, from the SLA policy.</param>
+    /// <exception cref="BusinessRuleViolationException">The ticket cannot be escalated.</exception>
+    /// <exception cref="ArgumentException">The reason or the actor is missing or too long.</exception>
+    public TicketEscalation Escalate(
+        TimeSpan slaWindow,
+        int? agentId,
+        string reason,
+        string escalatedBy,
+        DateTime nowUtc)
+    {
+        EnsureCanBeEscalated();
+
+        ArgumentNullException.ThrowIfNull(reason);
+        ArgumentException.ThrowIfNullOrWhiteSpace(escalatedBy);
+
+        reason = reason.Trim();
+        escalatedBy = escalatedBy.Trim();
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(reason.Length, TicketEscalation.ReasonMinLength, nameof(reason));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(reason.Length, TicketEscalation.ReasonMaxLength, nameof(reason));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(escalatedBy.Length, TicketEscalation.EscalatedByMaxLength, nameof(escalatedBy));
+
+        var (fromPriority, fromAgentId, fromDueAtUtc) = (Priority, AssignedAgentId, DueAtUtc);
+
+        Priority = Priority.OneLevelUp();
+        AssignedAgentId = agentId;
+        StartSlaWindow(slaWindow, nowUtc);
+        UpdatedAtUtc = nowUtc;
+
+        return new TicketEscalation(
+            Id, fromPriority, Priority, fromAgentId, AssignedAgentId, fromDueAtUtc, DueAtUtc!.Value,
+            reason, escalatedBy, nowUtc);
     }
 
     /// <summary>
@@ -120,5 +188,17 @@ public sealed class Ticket : AggregateRoot
     {
         AssignedAgentId = agentId;
         UpdatedAtUtc = nowUtc;
+    }
+
+    private void StartSlaWindow(TimeSpan window, DateTime startUtc)
+    {
+        // Whole seconds, so the stored window and the due date always describe the same span.
+        if (window <= TimeSpan.Zero || window.Ticks % TimeSpan.TicksPerSecond != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(window), window, "An SLA window must be a positive whole number of seconds.");
+        }
+
+        SlaWindowSeconds = checked((int)window.TotalSeconds);
+        DueAtUtc = startUtc.Add(window);
     }
 }

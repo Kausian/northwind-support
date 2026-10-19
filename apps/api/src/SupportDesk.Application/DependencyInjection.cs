@@ -6,8 +6,10 @@ using SupportDesk.Application.Features.Customers.Queries.GetCustomer;
 using SupportDesk.Application.Features.Customers.Queries.GetCustomers;
 using SupportDesk.Application.Features.Tickets.Commands.AssignTicket;
 using SupportDesk.Application.Features.Tickets.Commands.ChangeTicketStatus;
+using SupportDesk.Application.Features.Tickets.Commands.EscalateTicket;
 using SupportDesk.Application.Features.Tickets.Commands.RaiseTicket;
 using SupportDesk.Application.Features.Tickets.Queries.GetTicket;
+using SupportDesk.Application.Features.Tickets.Queries.GetTicketEscalations;
 using SupportDesk.Application.Features.Tickets.Queries.SearchTickets;
 using SupportDesk.Domain.Triage;
 
@@ -19,16 +21,19 @@ namespace SupportDesk.Application;
 public static class DependencyInjection
 {
     /// <remarks>
-    /// Triage needs a <see cref="SlaPolicy"/>, built from configuration by the host.
+    /// Triage and escalation need a <see cref="SlaPolicy"/>, built from configuration by the host.
     /// </remarks>
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         // Stateless rules: one instance serves every request.
         services.AddSingleton<TicketTriage>();
+        services.AddSingleton<TicketEscalator>();
 
         services.AddScoped<RaiseTicketCommandHandler>();
         services.AddScoped<ChangeTicketStatusCommandHandler>();
         services.AddScoped<AssignTicketCommandHandler>();
+        services.AddScoped<EscalateTicketCommandHandler>();
+        services.AddScoped<GetTicketEscalationsQueryHandler>();
         services.AddScoped<SearchTicketsQueryHandler>();
         services.AddScoped<GetTicketQueryHandler>();
 

@@ -14,6 +14,7 @@ public sealed class TicketBuilder
     private TicketStatus _status = TicketStatus.New;
     private int? _assignedAgentId;
     private DateTime? _resolvedAtUtc;
+    private TimeSpan? _slaWindow;
 
     public TicketBuilder WithReference(string reference)
     {
@@ -39,6 +40,13 @@ public sealed class TicketBuilder
         return this;
     }
 
+    /// <summary>Gives the ticket a due date this long after it was raised.</summary>
+    public TicketBuilder WithSlaWindow(TimeSpan window)
+    {
+        _slaWindow = window;
+        return this;
+    }
+
     /// <summary>When the ticket reached its status; for Resolved and Closed, the resolution time.</summary>
     public TicketBuilder ResolvedAt(DateTime? resolvedAtUtc)
     {
@@ -55,7 +63,8 @@ public sealed class TicketBuilder
             customerId: 1,
             categoryId: 1,
             _priority,
-            FixedClock.DefaultNow);
+            FixedClock.DefaultNow,
+            _slaWindow);
 
         if (_assignedAgentId is not null)
         {
