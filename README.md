@@ -107,3 +107,25 @@ and 40 tickets across every status, priority and SLA state.
 | Browser warns about the certificate | `dotnet dev-certs https --trust`, or use the web app, which proxies |
 | Web app shows "Unable to load tickets" | The API is not running, or `VITE_API_PROXY_TARGET` points at the wrong port |
 | SQL Server slow on Apple Silicon | Enable Rosetta in Docker Desktop → Settings → General |
+
+---
+
+## Task 1: notes
+
+### DEFECT-117: ticket filters sometimes did not take effect
+
+**Root cause.** The list hook's fetch effect only listed `search`, `page` and `pageSize` as
+dependencies (with the lint rule silenced), so changing status, priority, category, customer,
+agent, "unassigned only" or sort never re-ran it; the next search then fetched with whatever
+filters happened to be in state, which is why an earlier status "appeared" late.
+
+**Fix** (`apps/web/src/features/tickets/hooks/useTicketList.ts`). The hook now keeps two pieces
+of state: `query`, the filters actually sent to the API, and `searchText`, what is typed in the
+search box. Any change to `query` is fetched immediately (the effect depends on the whole query,
+so a new filter such as Task 2's `slaStatus` needs no extra wiring). Only `searchText` is
+debounced (300 ms) before it is copied into `query`. Each fetch's effect cleanup marks it stale,
+so a slow response can no longer overwrite a newer one.
+
+**Verify.** `npm run test --workspace apps/web`: `useTicketList.test.ts` asserts the request sent
+for every filter, the search debounce, clearing the search, and an out-of-order response; 11 of
+those tests fail against the original hook.

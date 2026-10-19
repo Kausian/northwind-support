@@ -36,7 +36,7 @@ export function TicketListPage() {
         onReset={resetFilters}
       />
 
-      {error && <ErrorMessage message={error} onRetry={() => void reload()} />}
+      {error && <ErrorMessage message={error} onRetry={reload} />}
 
       {isLoading && !data && <Spinner label="Loading tickets" />}
 
