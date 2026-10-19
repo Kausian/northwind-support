@@ -87,7 +87,7 @@ Both pass on a clean checkout and neither needs a database.
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/tickets` | Paged list with `search`, `status`, `priority`, `categoryId`, `customerId`, `assignedAgentId`, `unassignedOnly`, `sortBy`, `sortDirection`. **Filters are accepted but not applied yet** (Task 1). |
+| `GET /api/tickets` | Paged list with `search`, `status`, `priority`, `categoryId`, `customerId`, `assignedAgentId`, `unassignedOnly`, `sortBy`, `sortDirection`. Filters are applied in the database and combined with AND. |
 | `GET /api/tickets/{id}` | One ticket |
 | `POST /api/tickets` | Create a ticket |
 | `PATCH /api/tickets/{id}/status` · `/assignment` | Change status / assignee |
@@ -129,3 +129,27 @@ so a slow response can no longer overwrite a newer one.
 **Verify.** `npm run test --workspace apps/web`: `useTicketList.test.ts` asserts the request sent
 for every filter, the search debounce, clearing the search, and an out-of-order response; 11 of
 those tests fail against the original hook.
+
+### Server-side filtering
+
+**Where.** `TicketQueries.ApplyFilters` (`apps/api/src/SupportDesk.Infrastructure/Queries`) adds
+one `Where` per supplied filter to the EF Core query *before* `CountAsync`, sorting, `Skip` and
+`Take`, so the database filters, counts and pages, and `totalCount`/`totalPages` describe the
+filtered set. Chained `Where` calls combine with AND. Adding a filter (e.g. Task 2's `slaStatus`)
+is one more `if` block in that method.
+
+**Decisions.**
+- `status`, `priority`, `categoryId`, `customerId`, `assignedAgentId` are exact matches;
+  `unassignedOnly=true` means `AssignedAgentId IS NULL`; `false` means "no filter".
+- Contradictory filters (`assignedAgentId` + `unassignedOnly=true`) are honoured literally (AND)
+  and return an empty page rather than an error.
+- `search` is trimmed, ignored when blank, and matches title, reference or customer name as a
+  substring. It uses `EF.Functions.Like` with `%`, `_` and `[` escaped, rather than
+  `string.Contains`: `Contains` becomes `instr()` on SQLite, which is case-sensitive, while SQL
+  Server's default collation is not; `LIKE` is case-insensitive (for ASCII) on both, so the
+  tests and production agree. Escaping stops user input such as `100%` acting as a wildcard.
+
+**How the SQL was checked.** `TicketQueriesFilteringTests` run every filter, combinations,
+blank search, wildcards and paging counts through EF Core against a real (in-memory SQLite)
+database. The SQL Server translation was inspected with `ToQueryString()`: all filters appear in
+one parameterised `WHERE ... LIKE @pattern ESCAPE N'\'` clause, ahead of `ORDER BY`/`OFFSET`.

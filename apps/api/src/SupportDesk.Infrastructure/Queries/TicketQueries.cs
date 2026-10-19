@@ -16,14 +16,16 @@ namespace SupportDesk.Infrastructure.Queries;
 /// </summary>
 public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQueries
 {
+    /// <summary>Escapes wildcards in search text; supported by SQL Server and SQLite alike.</summary>
+    private const string LikeEscapeCharacter = "\\";
+
     /// <remarks>
-    /// Sorts and pages every ticket. The filter values bound into <paramref name="query"/>
-    /// (search, status, priority, category, customer, agent, unassigned-only) are not applied
-    /// yet: server-side filtering is still to be built.
+    /// Filters, then counts, sorts and pages - all in one database query each for the count and
+    /// the page, so the count and the pager describe the filtered set.
     /// </remarks>
     public async Task<PagedResult<TicketListItemDto>> GetPagedAsync(TicketQuery query, CancellationToken ct)
     {
-        var tickets = TicketsWithLabels();
+        var tickets = ApplyFilters(TicketsWithLabels(), query);
 
         var totalCount = await tickets.CountAsync(ct);
 
@@ -116,6 +118,66 @@ public sealed class TicketQueries(SupportDbContext db, IClock clock) : ITicketQu
         join category in db.Set<Category>() on ticket.CategoryId equals category.Id
         from agent in db.Set<Agent>().Where(a => a.Id == ticket.AssignedAgentId).DefaultIfEmpty()
         select new TicketWithLabels { Ticket = ticket, Customer = customer, Category = category, Agent = agent };
+
+    /// <summary>
+    /// Narrows the list to the filters that were supplied. Each one adds a condition to the SQL
+    /// WHERE clause, so they combine with AND; a new filter is one more <c>if</c> here.
+    /// </summary>
+    private static IQueryable<TicketWithLabels> ApplyFilters(IQueryable<TicketWithLabels> source, TicketQuery query)
+    {
+        if (query.Status is { } status)
+        {
+            source = source.Where(x => x.Ticket.Status == status);
+        }
+
+        if (query.Priority is { } priority)
+        {
+            source = source.Where(x => x.Ticket.Priority == priority);
+        }
+
+        if (query.CategoryId is { } categoryId)
+        {
+            source = source.Where(x => x.Ticket.CategoryId == categoryId);
+        }
+
+        if (query.CustomerId is { } customerId)
+        {
+            source = source.Where(x => x.Ticket.CustomerId == customerId);
+        }
+
+        if (query.AssignedAgentId is { } agentId)
+        {
+            source = source.Where(x => x.Ticket.AssignedAgentId == agentId);
+        }
+
+        if (query.UnassignedOnly)
+        {
+            source = source.Where(x => x.Ticket.AssignedAgentId == null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var pattern = $"%{EscapeLikePattern(query.Search.Trim())}%";
+
+            source = source.Where(x =>
+                EF.Functions.Like(x.Ticket.Title, pattern, LikeEscapeCharacter) ||
+                EF.Functions.Like(x.Ticket.Reference, pattern, LikeEscapeCharacter) ||
+                EF.Functions.Like(x.Customer.Name, pattern, LikeEscapeCharacter));
+        }
+
+        return source;
+    }
+
+    /// <summary>
+    /// Makes the user's text match literally inside a LIKE pattern: <c>%</c>, <c>_</c> and
+    /// SQL Server's <c>[</c> character sets would otherwise act as wildcards.
+    /// </summary>
+    private static string EscapeLikePattern(string text) =>
+        text
+            .Replace(LikeEscapeCharacter, LikeEscapeCharacter + LikeEscapeCharacter, StringComparison.Ordinal)
+            .Replace("%", LikeEscapeCharacter + "%", StringComparison.Ordinal)
+            .Replace("_", LikeEscapeCharacter + "_", StringComparison.Ordinal)
+            .Replace("[", LikeEscapeCharacter + "[", StringComparison.Ordinal);
 
     private static IQueryable<TicketWithLabels> ApplySort(IQueryable<TicketWithLabels> source, TicketQuery query)
     {
