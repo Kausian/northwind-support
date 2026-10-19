@@ -153,3 +153,42 @@ is one more `if` block in that method.
 blank search, wildcards and paging counts through EF Core against a real (in-memory SQLite)
 database. The SQL Server translation was inspected with `ToQueryString()`: all filters appear in
 one parameterised `WHERE ... LIKE @pattern ESCAPE N'\'` clause, ahead of `ORDER BY`/`OFFSET`.
+
+---
+
+## Task 2A: automatic triage and assignment
+
+`POST /api/tickets` now decides priority, due date and owner itself and returns them, plus a
+`triage` object with a human-readable reason for each (`priority`, `slaWindow`, `assignment`).
+Nobody being eligible is a normal outcome: the ticket is still created (**201**), unassigned,
+and the reason says why.
+
+**Where the rules live.** Each rule is a small unit in `SupportDesk.Domain/Triage`, with no
+framework or database dependency, so it is unit-tested directly and can be reused by
+escalation (Task 2B):
+
+| Unit | Rule |
+| --- | --- |
+| `PriorityRule` | BR-1: requested priority, default Medium; Critical when the category's `ForcesCriticalPriority` flag is set (the flag, never the name). |
+| `SlaPolicy` + `SlaSettings` | BR-2/3/6: base window per priority, Premium multiplier, minimum window; numbers from the `Sla` config section. |
+| `AgentSelector` + `AgentWorkload` | BR-4/5: eligible = active, strictly below `MaxOpenTickets`, specialised when `RequiresSpecialist`; fewest open tickets wins. |
+| `TicketTriage` | Combines the three for a new ticket. |
+
+`RaiseTicketCommandHandler` only loads data (customer tier, category flags, agent workloads),
+calls `TicketTriage`, raises the ticket and saves.
+
+**Decisions.**
+- *Tie-break:* lowest agent id. Ids never change, so the same data always gives the same owner.
+- *Open tickets* are those not Resolved or Closed (matching `Ticket.IsOpen`); the count is a
+  correlated `COUNT` in the single workload query, not a load of tickets.
+- *The 1 h floor* applies to the Premium-reduced window, as BR-3 states it; a configured base
+  window is used as is for Standard customers.
+- *Configuration:* `Sla` is bound with the options pattern and validated **at startup**
+  (`ValidateOnStart`), so a missing priority or an out-of-range multiplier stops the API with the
+  offending key named, instead of failing the first ticket. The section exists only in
+  `appsettings.Development.json`; any other environment must supply it (e.g. `Sla__...`
+  environment variables), deliberately rather than silently falling back to defaults.
+- *Response shape:* `triage` is a nullable property on the existing ticket DTO, omitted from the
+  JSON when null, so `GET /api/tickets/{id}` is unchanged and the existing client keeps working.
+- *No schema change:* due date and assigned agent already exist on `Tickets`; triage reasons are
+  returned, not stored.

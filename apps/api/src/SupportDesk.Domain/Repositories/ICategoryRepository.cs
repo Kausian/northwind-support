@@ -7,5 +7,6 @@ namespace SupportDesk.Domain.Repositories;
 /// </summary>
 public interface ICategoryRepository
 {
-    Task<bool> ExistsAsync(int id, CancellationToken ct);
+    /// <summary>Loads a category to read its rules from, or null when it does not exist.</summary>
+    Task<Category?> GetByIdAsync(int id, CancellationToken ct);
 }

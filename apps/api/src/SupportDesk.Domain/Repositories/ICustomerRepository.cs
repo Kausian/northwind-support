@@ -7,5 +7,6 @@ namespace SupportDesk.Domain.Repositories;
 /// </summary>
 public interface ICustomerRepository
 {
-    Task<bool> ExistsAsync(int id, CancellationToken ct);
+    /// <summary>Loads a customer to read their tier from, or null when they do not exist.</summary>
+    Task<Customer?> GetByIdAsync(int id, CancellationToken ct);
 }

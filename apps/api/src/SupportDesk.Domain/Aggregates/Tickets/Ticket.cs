@@ -49,9 +49,10 @@ public sealed class Ticket : AggregateRoot
     public bool IsOpen => Status is not (TicketStatus.Resolved or TicketStatus.Closed);
 
     /// <summary>
-    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, with no
-    /// owner and no due date.
+    /// Raises a new ticket for a customer. It starts as <see cref="TicketStatus.New"/>, due and
+    /// owned as triage decided; without a due date or owner it has neither.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The due date is not after <paramref name="nowUtc"/>.</exception>
     public static Ticket Raise(
         string reference,
         string title,
@@ -59,11 +60,18 @@ public sealed class Ticket : AggregateRoot
         int customerId,
         int categoryId,
         TicketPriority priority,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        DateTime? dueAtUtc = null,
+        int? assignedAgentId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reference);
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
+
+        if (dueAtUtc is { } due)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(due, nowUtc, nameof(dueAtUtc));
+        }
 
         return new Ticket
         {
@@ -74,8 +82,10 @@ public sealed class Ticket : AggregateRoot
             CategoryId = categoryId,
             Priority = priority,
             Status = TicketStatus.New,
+            AssignedAgentId = assignedAgentId,
             CreatedAtUtc = nowUtc,
-            UpdatedAtUtc = nowUtc
+            UpdatedAtUtc = nowUtc,
+            DueAtUtc = dueAtUtc
         };
     }
 
