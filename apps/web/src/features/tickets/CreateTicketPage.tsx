@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { Spinner } from '../../components/Spinner';
 import { useReferenceData } from '../../hooks/useReferenceData';
-import type { TicketDetail } from '../../types/api';
+import type { TicketCreated } from '../../types/api';
 import { CreateTicketForm } from './components/CreateTicketForm';
+import { TriageResult } from './components/TriageResult';
 
 export function CreateTicketPage() {
   const reference = useReferenceData();
   const navigate = useNavigate();
-  const [created, setCreated] = useState<TicketDetail>();
+  const [created, setCreated] = useState<TicketCreated>();
 
   return (
     <section>
@@ -33,6 +34,7 @@ export function CreateTicketPage() {
           <p>
             Raised <strong>{created.reference}</strong> for {created.customer.name}.
           </p>
+          <TriageResult ticket={created} />
           <div className="button-row">
             <button
               type="button"

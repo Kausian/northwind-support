@@ -267,3 +267,29 @@ Migration `AddTicketEscalationsAndSlaWindow`:
 
 Not done: `db/schema.sql` and `db/seed.sql` (reference scripts) were not updated; the EF
 migrations are the source of truth.
+
+---
+
+## Task 2 (frontend): SLA, escalation and triage in the web app
+
+- **One SLA indicator** (`SlaIndicator`) on the list and the detail page. It shows the status the
+  API computed - the web app never recalculates SLA - as a word plus a distinct symbol per state
+  (● Within SLA, ▲ At risk, ✕ Breached, ✓ Met, – No SLA), announced as "SLA: At risk", with
+  "No due date" instead of a blank. Labels live in one map (`features/tickets/sla.ts`) shared
+  with the filter.
+- **SLA filter** in the filter bar sends `slaStatus` with the API's exact values. It goes through
+  the same `useTicketList` query as every other filter, so it needed no extra wiring (the
+  DEFECT-117 fix at work); "Clear filters" clears it.
+- **Escalation panel** on the detail page: current → next priority, a reason validated with
+  the API's own limits (5-500 characters, trimmed) before any request, a pending state, a guard
+  against double submission, and the API's error shown as is (400 on its field, 404, 409). On
+  success the ticket is replaced by the one in the response and only the history is refetched -
+  no page or ticket reload. Disabled, with the reason given, for Critical, Resolved and Closed
+  tickets; a 409 is still handled if the ticket changed meanwhile.
+- **Escalation actor (temporary).** Until sign-in exists the user types their name, remembered in
+  `localStorage`. All of it is in one hook, `features/tickets/escalationActor.ts`, which Task 3
+  replaces with the signed-in agent.
+- **Escalation history** under the panel, newest first as the API returns it: priority, agent and
+  due date before → after, reason, who and when; loading, error-with-retry and empty states.
+- **Triage result** after raising a ticket: the priority, due date and owner the API chose (or
+  "Unassigned"), each with the API's reason.

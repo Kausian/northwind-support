@@ -81,6 +81,44 @@ export interface TicketDetail {
   slaStatus: SlaStatus;
 }
 
+/** Why triage gave a new ticket its priority, due date and owner (POST /tickets only). */
+export interface Triage {
+  priority: string;
+  slaWindow: string;
+  assignment: string;
+}
+
+/** The response to raising a ticket: the ticket as triaged, and why. */
+export interface TicketCreated extends TicketDetail {
+  triage: Triage;
+}
+
+/** One row of a ticket's escalation history, as GET /tickets/{id}/escalations returns it. */
+export interface TicketEscalation {
+  id: number;
+  fromPriority: TicketPriority;
+  toPriority: TicketPriority;
+  fromAgent: AgentSummary | null;
+  toAgent: AgentSummary | null;
+  fromDueAtUtc: string | null;
+  toDueAtUtc: string;
+  reason: string;
+  escalatedBy: string;
+  escalatedAtUtc: string;
+}
+
+export interface EscalateTicketPayload {
+  reason: string;
+  /** Until sign-in exists (Task 3) the caller names themselves; see escalationActor.ts. */
+  escalatedBy: string;
+}
+
+/** The response to escalating a ticket: the ticket as it now is, and the change recorded. */
+export interface EscalationResult {
+  ticket: TicketDetail;
+  escalation: TicketEscalation;
+}
+
 /** Everything the ticket list screen can narrow the results by. */
 export interface TicketFilters {
   search: string;
@@ -90,6 +128,7 @@ export interface TicketFilters {
   customerId?: number;
   assignedAgentId?: number;
   unassignedOnly?: boolean;
+  slaStatus?: SlaStatus;
   page: number;
   pageSize: number;
   sortBy: TicketSortField;

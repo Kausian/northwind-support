@@ -443,3 +443,70 @@ textarea[aria-invalid='true'] {
   white-space: nowrap;
   border: 0;
 }
+
+.escalation__change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history__entry {
+  padding: 12px 0;
+  border-top: 1px solid var(--colour-border);
+}
+
+.history__entry:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.history__meta {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}
+
+.history__changes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.history__changes dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--colour-muted);
+}
+
+.history__changes dd {
+  margin: 0;
+}
+
+.history__reason {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.triage {
+  margin: 12px 0;
+}
+
+.triage dd {
+  margin: 0 0 8px;
+}
+
+.triage__reason {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}

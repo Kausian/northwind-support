@@ -77,6 +77,7 @@ describe('useTicketList', () => {
     ['assigned agent', { assignedAgentId: 4 }],
     ['unassigned only', { unassignedOnly: true }],
     ['sort', { sortBy: 'dueAtUtc', sortDirection: 'asc' }],
+    ['SLA', { slaStatus: 'AtRisk' }],
   ])('requests immediately when the %s filter changes', async (_, patch) => {
     const { result } = await renderLoaded();
 
@@ -151,6 +152,34 @@ describe('useTicketList', () => {
     expect(getTickets).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: 'InProgress', search: '' }),
     );
+  });
+
+  it('clears the SLA filter with the others, and keeps it while searching and paging', async () => {
+    const { result } = await renderLoaded();
+
+    act(() => {
+      result.current.updateFilters({ slaStatus: 'Breached' });
+    });
+    await flush();
+    act(() => {
+      result.current.updateFilters({ search: 'invoice' });
+    });
+    await flush(300);
+    act(() => {
+      result.current.updateFilters({ page: 2 });
+    });
+    await flush();
+
+    expect(getTickets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slaStatus: 'Breached', search: 'invoice', page: 2 }),
+    );
+
+    act(() => {
+      result.current.resetFilters();
+    });
+    await flush();
+
+    expect(getTickets).toHaveBeenLastCalledWith(expect.objectContaining({ slaStatus: undefined, page: 1 }));
   });
 
   it('requests immediately when the filters are cleared', async () => {
