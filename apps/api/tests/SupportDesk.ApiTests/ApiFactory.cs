@@ -23,7 +23,7 @@ namespace SupportDesk.ApiTests;
 /// in-memory SQLite database, and test-only settings - including a signing key that exists only
 /// here. One instance is shared by a test class.
 /// </summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+public class ApiFactory : WebApplicationFactory<Program>
 {
     public const string SigningKey = "api-tests-only-signing-key-0123456789abcdef";
     public const string Issuer = "northwind-support-api";
@@ -64,9 +64,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<DbContextOptions<SupportDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<SupportDbContext>>();
-            services.AddDbContext<SupportDbContext>(options => options.UseSqlite(_connection));
+            services.AddDbContext<SupportDbContext>(UseDatabase);
         });
     }
+
+    /// <summary>The database the API talks to; a private in-memory SQLite one unless overridden.</summary>
+    protected virtual void UseDatabase(DbContextOptionsBuilder options) => options.UseSqlite(_connection);
 
     /// <summary>A client with the schema and test data in place.</summary>
     public HttpClient CreateSeededClient()

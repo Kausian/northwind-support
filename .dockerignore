@@ -1,0 +1,34 @@
+# Keeps the build context to what the API image needs (DK-2). The Dockerfile copies the API's
+# sources explicitly; this file stops the rest from even being sent to the Docker engine.
+
+# Build output and dependencies, whatever the folder depth.
+**/bin/
+**/obj/
+**/node_modules/
+**/TestResults/
+
+# Version control, editor and tooling state.
+.git/
+.github/
+.vs/
+.vscode/
+.idea/
+.config/
+
+# Secrets and local settings: never in the image.
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/secrets.json
+**/*.pfx
+**/*.pem
+
+# Not part of the API.
+apps/web/
+apps/api/tests/
+db/
+spec/
+*.md
+*.pdf

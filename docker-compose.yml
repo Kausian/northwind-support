@@ -1,5 +1,7 @@
-# SQL Server for local development only. The password below is a throwaway local
-# placeholder - never commit a real credential.
+# The local stack: SQL Server and the API (Task 4). Every credential here is a throwaway local
+# placeholder or comes from your git-ignored .env - never commit a real one.
+#   docker compose up --build           SQL Server + API on http://localhost:5080
+#   docker compose up -d sqlserver      SQL Server only (npm run db:up)
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -22,6 +24,32 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+
+  api:
+    build:
+      # Built from the repository root (DK-1), so the restore layer sees the shared build files.
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: northwind-support-api:local
+    container_name: supportdesk-api
+    depends_on:
+      sqlserver:
+        # Not just started: accepting queries (its healthcheck above).
+        condition: service_healthy
+    environment:
+      # DK-4: everything environment-specific arrives here, at run time - none of it is in the image.
+      # Development makes the API apply migrations and seed demo data on start (DK-6).
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      # "sqlserver" is the service name on the compose network, not localhost.
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=SupportDesk;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Local_Dev_Password1};TrustServerCertificate=True;Encrypt=False"
+      # Required, from .env. Left empty, the API refuses to start and says how to set it.
+      Jwt__SigningKey: ${Jwt__SigningKey:-}
+      # The documented local-only sign-in password the seed hashes for every agent (README).
+      Seed__DevelopmentAgentPassword: ${Seed__DevelopmentAgentPassword:-Local-Dev-Only-1!}
+    ports:
+      # DK-5: http://localhost:5080 on the host; 8080 inside the container.
+      - "5080:8080"
+    restart: unless-stopped
 
 volumes:
   supportdesk-sql:

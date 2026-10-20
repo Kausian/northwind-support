@@ -58,6 +58,9 @@ npm run web                   # terminal 2: React dev server
 Sign in with any seeded agent, e.g. `sara.lindqvist@northwind-support.example`, and the
 development password **`Local-Dev-Only-1!`** (a local fixture; see Task 3).
 
+**Or run the whole backend in Docker** - one command after a one-time `.env`: see
+[Task 4](#task-4-dockerise-the-api) (Windows CMD and PowerShell commands included).
+
 | What | Where |
 | --- | --- |
 | Web app | http://localhost:5173 |
@@ -193,9 +196,10 @@ calls `TicketTriage`, raises the ticket and saves.
   window is used as is for Standard customers.
 - *Configuration:* `Sla` is bound with the options pattern and validated **at startup**
   (`ValidateOnStart`), so a missing priority or an out-of-range multiplier stops the API with the
-  offending key named, instead of failing the first ticket. The section exists only in
-  `appsettings.Development.json`; any other environment must supply it (e.g. `Sla__...`
-  environment variables), deliberately rather than silently falling back to defaults.
+  offending key named, instead of failing the first ticket. The section lives in
+  `appsettings.json` (it started in `appsettings.Development.json` and moved there in Task 4,
+  because the container image deliberately leaves the Development file out); any value can be
+  overridden per environment with `Sla__...` environment variables.
 - *Response shape:* `triage` is a nullable property on the existing ticket DTO, omitted from the
   JSON when null, so `GET /api/tickets/{id}` is unchanged and the existing client keeps working.
 - *No schema change:* due date and assigned agent already exist on `Tickets`; triage reasons are
@@ -351,8 +355,8 @@ dotnet user-secrets set Jwt:SigningKey "$(openssl rand -base64 48)" --project ap
   clock skew.
 - **Protection (AU-6):** one fallback authorization policy requires a signed-in user on every
   endpoint; only `/api/auth/login` is `[AllowAnonymous]`. Swagger is served by middleware ahead of
-  authorization, so it stays open. (The Task 4 `/health` endpoint will be marked anonymous the same
-  way.) A missing, expired or invalid token gets a `401` ProblemDetails, saying when the session
+  authorization, so it stays open. `GET /health` (Task 4) is the one other anonymous endpoint,
+  declared where it is mapped. A missing, expired or invalid token gets a `401` ProblemDetails, saying when the session
   expired.
 - **Me (AU-5):** `GET /api/auth/me` re-reads the agent, so one deactivated after signing in gets 401.
 - **Escalation actor (AU-8):** the escalate request has only `reason`; the controller passes the
@@ -381,3 +385,148 @@ The key in a secret store and rotated (validate with old and new keys during rot
 only; short access tokens with refresh tokens and revocation (a deactivated agent's token stays
 valid until it expires - only `/me` checks); lockout or rate limiting on login; credentials issued
 by an admin flow instead of a seed; the token in an httpOnly cookie.
+
+---
+
+## Task 4: Dockerise the API
+
+`docker compose up --build` runs SQL Server and the API together; the API migrates and seeds an
+empty database on its first start and serves on **http://localhost:5080**.
+
+### Run it
+
+One-time setup: create `.env` (git-ignored) from the example and give it a signing key.
+
+```bash
+# Git Bash / WSL / macOS / Linux
+cp .env.example .env
+sed -i "s|^Jwt__SigningKey=.*|Jwt__SigningKey=$(openssl rand -base64 48)|" .env
+```
+
+```powershell
+# Windows PowerShell 5.1 or PowerShell 7
+Copy-Item .env.example .env
+$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+(Get-Content .env) -replace '^Jwt__SigningKey=.*', "Jwt__SigningKey=$([Convert]::ToBase64String($b))" | Set-Content .env -Encoding ascii
+```
+
+```bat
+:: Windows CMD: copy, generate a key, then paste it after Jwt__SigningKey= in .env
+copy .env.example .env
+powershell -NoProfile -Command "$b=New-Object byte[] 48;[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b);[Convert]::ToBase64String($b)"
+notepad .env
+```
+
+Then, in any shell:
+
+| What | Command |
+| --- | --- |
+| Build and start everything | `docker compose up --build -d` |
+| Follow the API log (migrations, seeding) | `docker compose logs -f api` |
+| Status and SQL Server health | `docker compose ps` |
+| API health | `curl http://localhost:5080/health` (PowerShell: `curl.exe ...` or `Invoke-RestMethod http://localhost:5080/health`) |
+| Swagger | http://localhost:5080/swagger |
+| Stop (data kept) | `docker compose down` |
+| Wipe the database too | `docker compose down -v` - deletes the volume |
+| Web app against the container (DK-8) | Bash: `VITE_API_PROXY_TARGET=http://localhost:5080 npm run web` |
+| | CMD: `set VITE_API_PROXY_TARGET=http://localhost:5080&& npm run web` (no space before `&&`) |
+| | PowerShell: `$env:VITE_API_PROXY_TARGET='http://localhost:5080'; npm run web` |
+| Tests (no Docker or secret needed) | `npm test` |
+
+Calling the API from a shell: `POST /api/auth/login` with a seeded agent, then send
+`Authorization: Bearer <accessToken>`. Every endpoint except login, `/health` and Swagger needs it.
+
+### Image (DK-1, DK-3)
+
+`apps/api/Dockerfile`, built from the repository root, in three stages:
+
+1. **restore** (.NET 10 SDK): copies only `global.json`, `Directory.Build.props`,
+   `Directory.Packages.props`, `.editorconfig` and the four `.csproj` files, then runs
+   `dotnet restore`. That layer - and the NuGet download - is reused until one of those files
+   changes.
+2. **publish** (same SDK image): copies `apps/api/src` and publishes in Release.
+3. **runtime** (`mcr.microsoft.com/dotnet/aspnet:10.0`): only the published output. No SDK,
+   compiler or source; plain HTTP on **8080**; runs as the image's unprivileged **`app`** user
+   (uid 1654); no certificates.
+
+`.dockerignore` (DK-2) keeps `bin/`, `obj/`, `node_modules/`, `.git/`, `.env`, the web app,
+tests and docs out of the build context (the context sent to Docker is about 250 kB), and leaves
+`appsettings.Development.json` - which holds the local connection string - out of the image.
+
+### Configuration at run time (DK-4)
+
+Nothing environment-specific or secret is in the image. `docker-compose.yml` passes:
+
+| Variable | Set from | Purpose |
+| --- | --- | --- |
+| `ASPNETCORE_ENVIRONMENT` | `.env`, default `Development` | Development applies migrations, seeds demo data and serves Swagger |
+| `ConnectionStrings__Default` | built from `MSSQL_SA_PASSWORD` | SQL Server by **service name** (`sqlserver`), not localhost |
+| `Jwt__SigningKey` | `.env` (**required**) | signs login tokens; at least 32 bytes. Empty: the API stops at startup and says how to set it |
+| `Seed__DevelopmentAgentPassword` | `.env`, default `Local-Dev-Only-1!` | the documented local sign-in password the seed hashes |
+| `MSSQL_SA_PASSWORD` | `.env`, default local placeholder | SQL Server's SA password |
+
+Issuer, audience, token lifetime and the SLA rules are ordinary settings in `appsettings.json`;
+any of them can be overridden with an environment variable (`Jwt__AccessTokenMinutes=30`).
+
+### Startup order and health (DK-5, DK-7)
+
+The `api` service starts only once SQL Server's healthcheck passes (`depends_on` with
+`condition: service_healthy`), and is published on `localhost:5080`.
+
+`GET /health` is open without a token (`.AllowAnonymous()` on the health endpoint - the only
+exception to the fallback policy besides login). It opens a real connection through the API's
+DbContext and answers `200 {"status":"Healthy","checks":[{"name":"database","status":"Healthy"}]}`
+or `503 ... "Unhealthy"`: check names and statuses only, never exception text, server names or
+connection strings. The check gives up after 5 s: SQL Server's client ignores cancellation until
+its own 15 s connect timeout, so the check stops waiting itself (measured: 20 s to answer with
+SQL Server stopped before that fix, 5.0 s after).
+
+### Migrations and seeding (DK-6)
+
+In Development the API runs `Database.Migrate()` and the seed on every start. Both are
+idempotent: EF applies only migrations missing from `__EFMigrationsHistory`, the demo data is
+seeded only into a database with no tickets, and credentials only for agents who have none. On
+an empty volume that means all migrations, then 40 tickets and 6 agents with credentials; on an
+existing database, nothing. Outside Development the API never touches the schema.
+
+**In a real deployment** migrations would not run on application start: several instances
+starting together would race, the application's database login would need DDL rights it should
+not have, and a failed migration would take the service down mid-rollout instead of failing a
+release step. They would run as a deliberate pipeline step before the new version is rolled out -
+an EF migration bundle (`dotnet ef migrations bundle`) or a reviewed idempotent script
+(`dotnet ef migrations script --idempotent`) - written so the old version still works against
+the new schema. Demo seeding would not exist; credentials would come from an admin process.
+
+### How each check was verified
+
+| Check | Result |
+| --- | --- |
+| `docker compose down -v && docker compose up --build` on an **empty** volume | Run as a separate compose project (own volume, containers and ports) so the working database was not touched: healthy in 34 s; log shows all 3 migrations applied, "Seeded 5 categories, 6 customers, 6 agents and 40 tickets", credentials for 6 agents; `/health` 200, login works, `/api/tickets` returns the 40 tickets |
+| Existing database | "No migrations were applied", "Seed data already present"; 49 tickets, 10 escalations unchanged after two restarts |
+| Restore layer reused after a `.cs` change | Changed `DatabaseHealthCheck.cs` and rebuilt: `RUN dotnet restore` **CACHED**; only the source copy (0.2 s) and `dotnet publish` (12 s) ran. Cold build 951 s (mostly downloading the SDK image), rebuild 23 s |
+| Runtime vs SDK image | **455 MB** runtime image vs **2.16 GB** for the SDK build stage; the ASP.NET base is 340 MB, the API adds about 115 MB (`docker images`) |
+| `docker compose exec api whoami` | `app` (uid 1654), not root |
+| Nothing baked in | `docker image inspect` shows no key, connection string or environment variable; `/app` holds `appsettings.json` but not `appsettings.Development.json`, and no SDK or source |
+| Security in the container | `/health` 200 without a token; `/api/tickets`, `/api/agents`, `/api/auth/me` 401 without; login 200 and authenticated requests 200; wrong password 401 |
+| Database down | `/health` 503 `Unhealthy` in 5.0 s; 200 again once SQL Server is back |
+| DK-8 | `set VITE_API_PROXY_TARGET=http://localhost:5080&& npm run web` (CMD): signed in through the web app and listed tickets served by the container |
+
+### Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| API container exits with `Jwt:SigningKey must be at least 32 bytes` | `.env` has no key: see *Run it* above, then `docker compose up -d api` |
+| `docker compose ps` shows the API restarting, log says it cannot reach the database | Wait for `sqlserver` to report `healthy`; check `MSSQL_SA_PASSWORD` is the same value SQL Server was first created with (it is stored in the volume) |
+| SQL Server exits with *PAL initialization error 101*, volume has an empty `.system/instance_id` | The volume's first initialisation was interrupted. Keep it if it may matter and start on a fresh one: `docker compose -p <new-name> up -d` creates new, separately named volumes. `docker compose down -v` wipes the default one instead |
+| Port 5080 or 1433 already in use | Stop the other process, or change the left-hand side of `ports:` in `docker-compose.yml` |
+| PowerShell `curl` shows an HTML table or prompts | That is `Invoke-WebRequest`; use `curl.exe` or `Invoke-RestMethod` |
+| `docker` commands fail with *dockerDesktopLinuxEngine ... cannot find the file* | Docker Desktop is not running; start it and wait for "Engine running" |
+
+### Known limitations
+
+- No container healthcheck for the API itself: the ASP.NET runtime image has no `curl`/`wget`;
+  `/health` is there for an orchestrator or a load balancer to call.
+- The container serves plain HTTP; TLS is expected to end in front of it (not wanted for this task).
+- `ASPNETCORE_ENVIRONMENT=Development` in compose is what turns on migrate-and-seed and Swagger;
+  it is a local stack, not a production configuration.
+- `docker compose down -v` deletes the database with no confirmation - by design of Compose.
