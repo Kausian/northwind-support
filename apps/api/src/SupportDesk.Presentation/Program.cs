@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using SupportDesk.Application;
 using SupportDesk.Infrastructure;
+using SupportDesk.Presentation.Authentication;
 using SupportDesk.Presentation.Extensions;
 using SupportDesk.Presentation.Filters;
 using SupportDesk.Presentation.Middleware;
@@ -28,6 +29,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddSlaPolicy(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -46,6 +48,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(FrontendCorsPolicy);
 
+// Who the caller is, then whether they may proceed: every endpoint needs a valid token unless
+// marked [AllowAnonymous] (the fallback policy in AddJwtAuthentication).
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();
+
+/// <summary>The entry point, made visible to the API tests' WebApplicationFactory.</summary>
+public partial class Program;

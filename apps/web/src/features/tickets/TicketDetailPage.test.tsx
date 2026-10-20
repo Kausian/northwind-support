@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ticketsApi } from '../../api/tickets';
 import { ticketDetail, ticketEscalation } from '../../test/fixtures';
+import { signInAs } from '../../test/session';
 import { TicketDetailPage } from './TicketDetailPage';
 
 vi.mock('../../api/tickets', () => ({
@@ -27,7 +28,7 @@ function renderPage() {
 
 describe('TicketDetailPage escalation', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    signInAs('Priya Nair');
     api.getTicket.mockResolvedValue(ticketDetail({ priority: 'Medium' }));
     api.getEscalations.mockResolvedValueOnce([]);
   });
@@ -47,7 +48,6 @@ describe('TicketDetailPage escalation', () => {
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('Reason'), 'Customer cannot close their books');
-    await user.type(screen.getByLabelText('Escalated by'), 'Priya Nair');
     await user.click(screen.getByRole('button', { name: 'Escalate to High' }));
 
     // The history is fetched again and shows the new row.
@@ -72,7 +72,6 @@ describe('TicketDetailPage escalation', () => {
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText('Reason'), 'Customer is blocked');
-    await user.type(screen.getByLabelText('Escalated by'), 'Priya Nair');
     await user.click(screen.getByRole('button', { name: 'Escalate to High' }));
 
     expect(await screen.findByText('Ticket TCK-0012 is Resolved and cannot be escalated.')).toBeInTheDocument();

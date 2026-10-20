@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <!-- The Web API and composition root. Maps HTTP to the application's commands and queries. -->
+  <PropertyGroup>
+    <!-- Local development secrets (the JWT signing key) live outside the repository: dotnet user-secrets. -->
+    <UserSecretsId>northwind-support-desk-api</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="../SupportDesk.Application/SupportDesk.Application.csproj" />
     <ProjectReference Include="../SupportDesk.Infrastructure/SupportDesk.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <!-- Required for the EF Core CLI to use this project as its startup project. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

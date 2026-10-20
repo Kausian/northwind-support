@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../api/client';
 import { ticketsApi } from '../../../api/tickets';
 import { ticketDetail, ticketEscalation } from '../../../test/fixtures';
+import { signInAs } from '../../../test/session';
 import type { EscalationResult, TicketDetail } from '../../../types/api';
 import { EscalationPanel } from './EscalationPanel';
 
@@ -24,7 +25,7 @@ function renderPanel(ticket: TicketDetail = ticketDetail()) {
   return onEscalated;
 }
 
-async function fillIn(reason: string, actor = 'Priya Nair') {
+async function fillIn(reason: string) {
   const user = userEvent.setup();
   const reasonBox = screen.getByLabelText('Reason');
   await user.clear(reasonBox);
@@ -32,17 +33,12 @@ async function fillIn(reason: string, actor = 'Priya Nair') {
     await user.click(reasonBox);
     await user.paste(reason);
   }
-  const actorBox = screen.getByLabelText('Escalated by');
-  await user.clear(actorBox);
-  if (actor) {
-    await user.type(actorBox, actor);
-  }
   return user;
 }
 
 describe('EscalationPanel', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    signInAs('Priya Nair');
     escalate.mockResolvedValue(success);
   });
 
@@ -95,28 +91,25 @@ describe('EscalationPanel', () => {
 
       await user.click(screen.getByRole('button', { name: 'Escalate to High' }));
 
-      expect(escalate).toHaveBeenCalledWith(12, { reason, escalatedBy: 'Priya Nair' });
-    });
-
-    it('requires the name of whoever escalates', async () => {
-      renderPanel();
-      const user = await fillIn('Customer is blocked', '');
-
-      await user.click(screen.getByRole('button', { name: 'Escalate to High' }));
-
-      expect(screen.getByText('Say who is escalating the ticket.')).toBeInTheDocument();
-      expect(escalate).not.toHaveBeenCalled();
+      expect(escalate).toHaveBeenCalledWith(12, { reason });
     });
   });
 
   describe('submitting', () => {
-    it('sends the trimmed reason and actor, then reports the recorded change', async () => {
+    it('shows who is escalating - the signed-in agent - without an editable field', () => {
+      renderPanel();
+
+      expect(screen.getByText(/Escalating as/)).toHaveTextContent('Escalating as Priya Nair');
+      expect(screen.queryByLabelText('Escalated by')).not.toBeInTheDocument();
+    });
+
+    it('sends only the trimmed reason, then reports the recorded change', async () => {
       const onEscalated = renderPanel();
-      const user = await fillIn('   Customer is blocked   ', 'Priya Nair');
+      const user = await fillIn('   Customer is blocked   ');
 
       await user.click(screen.getByRole('button', { name: 'Escalate to High' }));
 
-      expect(escalate).toHaveBeenCalledWith(12, { reason: 'Customer is blocked', escalatedBy: 'Priya Nair' });
+      expect(escalate).toHaveBeenCalledWith(12, { reason: 'Customer is blocked' });
       expect(onEscalated).toHaveBeenCalledWith(success);
       expect(screen.getByRole('status')).toHaveTextContent('Escalated from Medium to High.');
       expect(screen.getByLabelText('Reason')).toHaveValue('');
@@ -156,12 +149,6 @@ describe('EscalationPanel', () => {
       expect(escalate).toHaveBeenCalledTimes(1);
     });
 
-    it('remembers the actor for the next escalation', async () => {
-      renderPanel();
-      await fillIn('Customer is blocked', 'Priya Nair');
-
-      expect(window.localStorage.getItem('northwind.escalatedBy')).toBe('Priya Nair');
-    });
   });
 
   describe('API rejections', () => {

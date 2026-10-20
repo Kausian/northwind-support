@@ -4,7 +4,6 @@ import type { TicketDetail, TicketPriority } from '../../types/api';
 export const escalationLimits = {
   reasonMin: 5,
   reasonMax: 500,
-  escalatedByMax: 100,
 } as const;
 
 const nextPriorities: Record<TicketPriority, TicketPriority | undefined> = {
@@ -37,7 +36,6 @@ export function escalationBlocker(ticket: Pick<TicketDetail, 'status' | 'priorit
 
 export interface EscalationForm {
   reason: string;
-  escalatedBy: string;
 }
 
 export type EscalationErrors = Partial<Record<keyof EscalationForm, string>>;
@@ -46,18 +44,11 @@ export type EscalationErrors = Partial<Record<keyof EscalationForm, string>>;
 export function validateEscalation(form: EscalationForm): EscalationErrors {
   const errors: EscalationErrors = {};
   const reason = form.reason.trim();
-  const escalatedBy = form.escalatedBy.trim();
 
   if (reason.length === 0) {
     errors.reason = 'A reason for the escalation is required.';
   } else if (reason.length < escalationLimits.reasonMin || reason.length > escalationLimits.reasonMax) {
     errors.reason = `The reason must be between ${escalationLimits.reasonMin} and ${escalationLimits.reasonMax} characters.`;
-  }
-
-  if (escalatedBy.length === 0) {
-    errors.escalatedBy = 'Say who is escalating the ticket.';
-  } else if (escalatedBy.length > escalationLimits.escalatedByMax) {
-    errors.escalatedBy = `Use at most ${escalationLimits.escalatedByMax} characters.`;
   }
 
   return errors;

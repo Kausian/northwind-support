@@ -18,7 +18,11 @@ namespace SupportDesk.Infrastructure.Data;
 /// produces - a ticket's last update, its due date and that due date's window - are set through
 /// EF Core directly.
 /// </remarks>
-public sealed class SupportDbSeeder(SupportDbContext db, IClock clock, ILogger<SupportDbSeeder> logger)
+public sealed class SupportDbSeeder(
+    SupportDbContext db,
+    IClock clock,
+    IPasswordHasher passwordHasher,
+    ILogger<SupportDbSeeder> logger)
 {
     /// <summary>Seeds the database, unless it already has tickets in it.</summary>
     public async Task SeedAsync(CancellationToken ct = default)
@@ -49,6 +53,29 @@ public sealed class SupportDbSeeder(SupportDbContext db, IClock clock, ILogger<S
         logger.LogInformation(
             "Seeded {Categories} categories, {Customers} customers, {Agents} agents and {Tickets} tickets.",
             categories.Count, customers.Count, agents.Count, await db.Set<Ticket>().CountAsync(ct));
+    }
+
+    /// <summary>
+    /// AU-3: gives every agent who has no credential yet the development password, hashed now.
+    /// Safe to run on every start: agents who already have a hash are left alone, so a changed
+    /// password is never overwritten, and a fresh database gets credentials as soon as it is seeded.
+    /// </summary>
+    /// <param name="developmentPassword">The documented local-only password, from configuration.</param>
+    public async Task SeedDevelopmentCredentialsAsync(string developmentPassword, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(developmentPassword);
+
+        var withoutCredentials = await db.Set<Agent>().Where(a => a.PasswordHash == null).ToListAsync(ct);
+
+        foreach (var agent in withoutCredentials)
+        {
+            // Each agent gets their own salt, so equal passwords still hash differently.
+            agent.SetPasswordHash(passwordHasher.Hash(developmentPassword));
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        logger.LogInformation("Development credentials issued to {Count} agent(s).", withoutCredentials.Count);
     }
 
     private static List<Category> SeedCategories() =>

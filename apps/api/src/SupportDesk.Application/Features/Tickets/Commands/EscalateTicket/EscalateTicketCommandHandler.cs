@@ -24,10 +24,7 @@ public sealed class EscalateTicketCommandHandler(
     ITicketQueries ticketQueries,
     ILogger<EscalateTicketCommandHandler> logger)
 {
-    /// <param name="escalatedBy">
-    /// Who is escalating, passed separately from the request so that the caller decides where it
-    /// comes from (the request body today, the signed-in user once authentication exists).
-    /// </param>
+    /// <param name="escalatedBy">The signed-in agent, from their token - never from the request body.</param>
     /// <exception cref="NotFoundException">The ticket does not exist.</exception>
     /// <exception cref="Domain.Exceptions.BusinessRuleViolationException">The ticket is Critical, Resolved or Closed.</exception>
     public async Task<EscalationResultDto> HandleAsync(int id, string reason, string escalatedBy, CancellationToken ct)

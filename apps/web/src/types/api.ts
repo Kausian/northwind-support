@@ -81,6 +81,20 @@ export interface TicketDetail {
   slaStatus: SlaStatus;
 }
 
+/** The signed-in agent, as POST /auth/login and GET /auth/me return them. */
+export interface AgentProfile {
+  id: number;
+  fullName: string;
+  email: string;
+}
+
+/** Response of POST /auth/login. */
+export interface LoginResponse {
+  accessToken: string;
+  expiresAtUtc: string;
+  agent: AgentProfile;
+}
+
 /** Why triage gave a new ticket its priority, due date and owner (POST /tickets only). */
 export interface Triage {
   priority: string;
@@ -107,10 +121,9 @@ export interface TicketEscalation {
   escalatedAtUtc: string;
 }
 
+/** Who escalates is never sent: the API records the signed-in agent from the token. */
 export interface EscalateTicketPayload {
   reason: string;
-  /** Until sign-in exists (Task 3) the caller names themselves; see escalationActor.ts. */
-  escalatedBy: string;
 }
 
 /** The response to escalating a ticket: the ticket as it now is, and the change recorded. */

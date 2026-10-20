@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SupportDesk.Application.Abstractions;
 using SupportDesk.Application.Contracts.Common;
 using SupportDesk.Application.Contracts.Tickets;
 using SupportDesk.Application.Features.Tickets.Commands.AssignTicket;
@@ -68,9 +69,11 @@ public sealed class TicketsController : ControllerBase
         int id,
         EscalateTicketRequest request,
         [FromServices] EscalateTicketCommandHandler handler,
+        [FromServices] ICurrentUser currentUser,
         CancellationToken ct) =>
-        // Task 3 replaces request.EscalatedBy with the signed-in user (AU-8).
-        handler.HandleAsync(id, request.Reason, request.EscalatedBy, ct);
+        // AU-8: the actor is the agent the verified token names. The body has no actor field, and
+        // any "escalatedBy" a client adds anyway is ignored by the JSON binder.
+        handler.HandleAsync(id, request.Reason, currentUser.Email, ct);
 
     /// <summary>The ticket's escalation history, newest first.</summary>
     [HttpGet("{id:int}/escalations")]

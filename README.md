@@ -49,9 +49,14 @@ Full requirements are in **[`ASSIGNMENT_CANDIDATE.md`](ASSIGNMENT_CANDIDATE.md)*
 cp .env.example .env          # optional, every value has a working default
 npm install                   # installs the web app
 npm run db:up                 # SQL Server 2022 in Docker on localhost:1433
+# once per machine: a local JWT signing key, kept outside the repository (see Task 3 below)
+dotnet user-secrets set Jwt:SigningKey "$(openssl rand -base64 48)" --project apps/api/src/SupportDesk.Presentation
 npm run api                   # terminal 1: migrates, seeds, then serves the API
 npm run web                   # terminal 2: React dev server
 ```
+
+Sign in with any seeded agent, e.g. `sara.lindqvist@northwind-support.example`, and the
+development password **`Local-Dev-Only-1!`** (a local fixture; see Task 3).
 
 | What | Where |
 | --- | --- |
@@ -71,7 +76,10 @@ credentials.**
 npm test                      # dotnet test, then the web tests (Vitest)
 ```
 
-Both pass on a clean checkout and neither needs a database.
+Both pass on a clean checkout and neither needs a database or a secret. `dotnet test` runs three
+projects: `UnitTests` (domain, handlers, SQLite-backed queries), `ArchitectureTests` (layering, model
+vs migrations) and `ApiTests` (the real HTTP pipeline - authentication, authorization, model
+binding - via `WebApplicationFactory` on in-memory SQLite, with a test-only signing key).
 
 ## Commands
 
@@ -293,3 +301,83 @@ migrations are the source of truth.
   due date before → after, reason, who and when; loading, error-with-retry and empty states.
 - **Triage result** after raising a ticket: the priority, due date and owner the API chose (or
   "Unassigned"), each with the API's reason.
+
+---
+
+## Task 3: login and authentication
+
+### Development login
+
+| Email | Password | Notes |
+| --- | --- | --- |
+| `sara.lindqvist@northwind-support.example` | `Local-Dev-Only-1!` | any active seeded agent works the same way |
+| `priya.nair@northwind-support.example` | `Local-Dev-Only-1!` | |
+| `yuki.tanaka@northwind-support.example` | `Local-Dev-Only-1!` | inactive: always refused, by design |
+
+The password is a **local fixture** (`Seed:DevelopmentAgentPassword` in
+`appsettings.Development.json`). In Development the API gives it, hashed, to every agent that
+has no credential yet, on each start: a fresh database gets credentials straight away, an existing
+one gets them once, and a hash that is already set is never overwritten. Nothing seeds credentials
+outside Development.
+
+### Signing key (AU-7)
+
+The JWT signing key is never in a committed file. Locally it lives in **user-secrets** (stored in
+your user profile, outside the repository); anywhere else, set the `Jwt__SigningKey` environment
+variable (listed, empty, in `.env.example`). It must be at least 32 bytes; the API refuses to
+start without one and says how to set it.
+
+```bash
+dotnet user-secrets set Jwt:SigningKey "$(openssl rand -base64 48)" --project apps/api/src/SupportDesk.Presentation
+```
+
+### How it works
+
+- **Credentials (AU-1):** a nullable `PasswordHash` column on `Agents` (migration
+  `AddAgentPasswordHash`). *Chosen* because agents are the only users and the relationship is
+  1:1 - a separate Users table would add a join and a second identity to keep in step, for roles
+  and user types the assignment rules out. *Trade-off:* the credential sits on the domain entity,
+  so every read path projects explicitly; no response contains it (tested).
+- **Hashing (AU-2):** ASP.NET Core Identity's `PasswordHasher` (`IdentityPasswordHasher` in
+  Infrastructure): PBKDF2-HMAC-SHA512, 100,000 iterations, random 128-bit salt per password, in a
+  versioned format that records its own parameters. Unknown emails are still checked against a
+  dummy hash, so every failure takes the same time.
+- **Login (AU-4):** `POST /api/auth/login` returns `{ accessToken, expiresAtUtc, agent }`. An
+  unknown email, a wrong password and an inactive agent all get the identical
+  `401 "Email or password is incorrect."`
+- **Token:** HS256 JWT with `sub` (agent id), `email`, `name`, `jti`, `iss`, `aud`, `exp`.
+  **Lifetime 60 minutes** (`Jwt:AccessTokenMinutes`). Validation checks signature (HS256 only -
+  `alg: none` and algorithm swaps are rejected), issuer, audience and lifetime with a 30-second
+  clock skew.
+- **Protection (AU-6):** one fallback authorization policy requires a signed-in user on every
+  endpoint; only `/api/auth/login` is `[AllowAnonymous]`. Swagger is served by middleware ahead of
+  authorization, so it stays open. (The Task 4 `/health` endpoint will be marked anonymous the same
+  way.) A missing, expired or invalid token gets a `401` ProblemDetails, saying when the session
+  expired.
+- **Me (AU-5):** `GET /api/auth/me` re-reads the agent, so one deactivated after signing in gets 401.
+- **Escalation actor (AU-8):** the escalate request has only `reason`; the controller passes the
+  token's `email` claim to the handler. An `escalatedBy` added to the JSON is ignored (tested:
+  Sara's token with Priya's name in the body records Sara).
+
+### Frontend
+
+- `/login` (AU-9): labelled email and password fields, client validation, pending state, the API's
+  message on a refused sign-in. Afterwards the agent returns to the page they asked for (AU-11).
+- `RequireAuth` wraps every other route: nothing protected renders, or is fetched, without a session.
+- The header shows the signed-in agent and **Sign out** (AU-12).
+- `api/client.ts` attaches `Authorization: Bearer <token>` to every call (AU-10). A 401 on a call
+  that carried a token ends the session and returns to `/login` with "Your session has expired"
+  (AU-13); the session also ends by itself at `expiresAtUtc`.
+- **Where the token is kept, and the trade-off:** `sessionStorage` (`auth/sessionStore.ts`). It
+  survives a reload but not closing the tab, and is not shared between tabs. Like any JavaScript-
+  readable storage it can be read by an XSS bug; mitigations here are React's output escaping, no
+  raw HTML, and a 60-minute token. *Rejected:* `localStorage` (outlives the tab, so a stolen token
+  is useful longer); memory only (every reload signs the agent out). *Production:* an httpOnly,
+  Secure, SameSite cookie set by the API, which script cannot read, plus CSRF protection.
+
+### Production changes (not done here)
+
+The key in a secret store and rotated (validate with old and new keys during rotation); HTTPS
+only; short access tokens with refresh tokens and revocation (a deactivated agent's token stays
+valid until it expires - only `/me` checks); lockout or rate limiting on login; credentials issued
+by an admin flow instead of a seed; the token in an httpOnly cookie.

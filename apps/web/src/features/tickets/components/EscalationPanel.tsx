@@ -25,7 +25,7 @@ interface EscalationPanelProps {
  * including a 409 when the ticket changed underneath the user.
  */
 export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
-  const { actor, setActor, isEditable } = useEscalationActor();
+  const actor = useEscalationActor();
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState<EscalationErrors>({});
   const [submitError, setSubmitError] = useState<string>();
@@ -46,7 +46,7 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
       return;
     }
 
-    const form = { reason, escalatedBy: actor };
+    const form = { reason };
     const validationErrors = validateEscalation(form);
     setErrors(validationErrors);
     setSubmitError(undefined);
@@ -60,10 +60,8 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
     setIsPending(true);
 
     try {
-      const result = await ticketsApi.escalate(ticket.id, {
-        reason: form.reason.trim(),
-        escalatedBy: form.escalatedBy.trim(),
-      });
+      // Only the reason: the API records the signed-in agent from the token.
+      const result = await ticketsApi.escalate(ticket.id, { reason: form.reason.trim() });
 
       setReason('');
       setConfirmation(`Escalated from ${result.escalation.fromPriority} to ${result.escalation.toPriority}.`);
@@ -117,23 +115,9 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
           )}
         </Field>
 
-        <Field
-          id="escalation-actor"
-          label="Escalated by"
-          error={errors.escalatedBy}
-          hint="Your name. Replaced by your sign-in once logins exist."
-        >
-          {(fieldProps) => (
-            <input
-              {...fieldProps}
-              type="text"
-              value={actor}
-              readOnly={!isEditable}
-              disabled={Boolean(blocker) || isPending}
-              onChange={(event) => setActor(event.target.value)}
-            />
-          )}
-        </Field>
+        <p className="field__hint escalation__actor">
+          Escalating as <strong>{actor}</strong>
+        </p>
 
         {submitError && (
           <p className="field__error" role="alert">
@@ -162,16 +146,8 @@ export function EscalationPanel({ ticket, onEscalated }: EscalationPanelProps) {
   );
 }
 
-/** The API names fields as C# does (Reason, EscalatedBy); the form uses camelCase. */
+/** The API names fields as C# does (Reason); the form uses camelCase. */
 function fromApiErrors(fieldErrors: Record<string, string[]>): EscalationErrors {
-  const errors: EscalationErrors = {};
-
-  for (const [field, messages] of Object.entries(fieldErrors)) {
-    const key = field.charAt(0).toLowerCase() + field.slice(1);
-    if (key === 'reason' || key === 'escalatedBy') {
-      errors[key] = messages[0];
-    }
-  }
-
-  return errors;
+  const reason = fieldErrors.Reason ?? fieldErrors.reason;
+  return reason ? { reason: reason[0] } : {};
 }

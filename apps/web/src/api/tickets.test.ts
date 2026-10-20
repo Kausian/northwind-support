@@ -44,19 +44,20 @@ describe('ticketsApi', () => {
   it('posts an escalation to the ticket and returns the API response', async () => {
     respond(200, { ticket: { id: 12 }, escalation: ticketEscalation() });
 
-    const result = await ticketsApi.escalate(12, { reason: 'Customer is blocked', escalatedBy: 'Priya' });
+    const result = await ticketsApi.escalate(12, { reason: 'Customer is blocked' });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/tickets/12/escalate');
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Customer is blocked', escalatedBy: 'Priya' });
+    // Only the reason: who escalates comes from the token, never from the body.
+    expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Customer is blocked' });
     expect(result.escalation.toPriority).toBe('High');
   });
 
   it('turns a 409 into an ApiError carrying the API message', async () => {
     respond(409, { title: 'Conflict', status: 409, detail: 'Ticket TCK-0012 is already Critical and cannot be escalated further.' });
 
-    const error = await ticketsApi.escalate(12, { reason: 'Customer is blocked', escalatedBy: 'Priya' }).catch((e: unknown) => e);
+    const error = await ticketsApi.escalate(12, { reason: 'Customer is blocked' }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(409);

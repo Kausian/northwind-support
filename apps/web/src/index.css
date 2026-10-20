@@ -510,3 +510,32 @@ textarea[aria-invalid='true'] {
   font-size: 0.85rem;
   color: var(--colour-muted);
 }
+
+.app__user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login__form {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login__form h1 {
+  margin-top: 0;
+}
+
+.escalation__actor {
+  margin: 0;
+}

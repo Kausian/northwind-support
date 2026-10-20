@@ -14,6 +14,18 @@ public static class WebApplicationExtensions
         await using var scope = app.Services.CreateAsyncScope();
 
         await scope.ServiceProvider.GetRequiredService<SupportDbContext>().Database.MigrateAsync();
-        await scope.ServiceProvider.GetRequiredService<SupportDbSeeder>().SeedAsync();
+
+        var seeder = scope.ServiceProvider.GetRequiredService<SupportDbSeeder>();
+        await seeder.SeedAsync();
+
+        // A local fixture from appsettings.Development.json, never a real password (README).
+        var developmentPassword = app.Configuration["Seed:DevelopmentAgentPassword"];
+        if (string.IsNullOrWhiteSpace(developmentPassword))
+        {
+            app.Logger.LogWarning("Seed:DevelopmentAgentPassword is not set; agents get no development credentials.");
+            return;
+        }
+
+        await seeder.SeedDevelopmentCredentialsAsync(developmentPassword);
     }
 }

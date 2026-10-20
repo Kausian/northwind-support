@@ -15,6 +15,9 @@ public sealed class AgentRepository(SupportDbContext db) : IAgentRepository
             .Include(a => a.Specializations)
             .FirstOrDefaultAsync(a => a.Id == id, ct);
 
+    public Task<Agent?> GetByEmailAsync(string email, CancellationToken ct) =>
+        db.Set<Agent>().AsNoTracking().FirstOrDefaultAsync(a => a.Email == email, ct);
+
     /// <remarks>
     /// One query: the open-ticket count is a correlated COUNT in SQL, not a load of tickets.
     /// Every agent is returned so the selection rules - not the query - decide eligibility; a

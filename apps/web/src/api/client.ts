@@ -1,3 +1,4 @@
+import { sessionStore } from '../auth/sessionStore';
 import type { ProblemDetails } from '../types/api';
 
 /**
@@ -26,20 +27,30 @@ export class ApiError extends Error {
 }
 
 /**
- * The single place that talks to the API. Returns parsed JSON, or throws an
- * {@link ApiError} that callers can show to the user.
+ * The single place that talks to the API. Attaches the signed-in agent's token to every call
+ * (AU-10), returns parsed JSON, or throws an {@link ApiError} that callers can show to the user.
  */
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = sessionStore.get()?.accessToken;
+
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
 
   if (!response.ok) {
     const problem = await readProblem(response);
+
+    // AU-13: a token the API no longer accepts (expired, or the agent was deactivated) ends the
+    // session, which sends the user to the sign-in page. A 401 on a call made without a token -
+    // a wrong password on the sign-in form - is only that form's answer.
+    if (response.status === 401 && token) {
+      sessionStore.end('expired');
+    }
 
     throw new ApiError(
       response.status,
